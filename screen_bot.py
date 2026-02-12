@@ -13,6 +13,46 @@ except ImportError:
     )
     sys.exit(1)
 
+# Windows: envia tecla via WinAPI para ser o mais próximo possível de um teclado físico
+IS_WINDOWS = sys.platform.startswith("win")
+
+if IS_WINDOWS:
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        KEYEVENTF_KEYUP = 0x0002
+        VK_DOWN = 0x28
+
+        def _press_key_vk(vk: int) -> None:
+            """Envia uma tecla virtual via WinAPI (key down + key up)."""
+            user32.keybd_event(vk, 0, 0, 0)
+            time.sleep(0.05)
+            user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
+
+    except Exception as e:
+        # Se der problema com WinAPI, apenas loga; cairemos no fallback do pyautogui
+        print(f"[WARN] Falha ao inicializar WinAPI: {e}")
+        IS_WINDOWS = False
+
+
+def press_down_key() -> None:
+    """
+    Pressiona a tecla para baixo.
+
+    - Em Windows, tenta usar WinAPI (keybd_event) para simular a tecla no nível do sistema.
+    - Em outras plataformas, usa pyautogui (keyDown/keyUp).
+    """
+    if IS_WINDOWS:
+        log("Enviando tecla DOWN via WinAPI.")
+        _press_key_vk(VK_DOWN)  # type: ignore[name-defined]
+    else:
+        log("Enviando tecla DOWN via pyautogui.")
+        pyautogui.keyDown("down")
+        time.sleep(0.05)
+        pyautogui.keyUp("down")
+
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
@@ -93,7 +133,7 @@ def click_image(
 
 def wait_for_optional_image(
     filename: str,
-    timeout: float = 3.0,
+    timeout: float = 1.0,
     confidence: float = 0.7,
 ) -> Optional[Tuple[int, int, int, int]]:
     """
@@ -101,119 +141,62 @@ def wait_for_optional_image(
     """
     box = wait_for_image(filename, timeout=timeout, confidence=confidence)
     if box is None:
-        log(f"Imagem opcional '{filename}' NÃO apareceu em {timeout:.1f}s.")
-    else:
-        log(f"Imagem opcional '{filename}' detectada.")
+        return None
     return box
 
 
-def process_single_item() -> None:
+def handle_error_modal() -> None:
     """
-    Executa o fluxo completo para UM item da lista (uma ONU).
+    Monitora continuamente a tela por um modal de erro e, quando aparecer,
+    executa automaticamente os cliques de fechamento.
 
     Fluxo:
-    1. Right-click em 'onu_selected.png'
-    2. Left-click em 'configure_onu_menu.png'
-    3. Left-click em 'access_control_menu.png'
-    4. Left-click em 'enable_radio_input.png'
-    5. Left-click em 'ok_button.png'
-    6. Left-click em 'final_ok_button.png'
-    7. Left-click em 'security_ok_button.png'
-    8. Se aparecer 'err_modal.png':
-           - Left-click em 'close.png'
-           - Left-click em 'cancel_button.png'
-       Se NÃO aparecer:
-           - Considera sucesso.
-    9. Independente de sucesso/erro acima, espera 1.5s e tecla "down" para ir ao próximo item.
+    - Fica em loop procurando 'err_modal.png'.
+    - Quando encontrar:
+        - Clica em 'close.png'.
+        - Clica em 'cancel_button.png'.
+        - Aguarda desaparecer o modal de erro antes de voltar a monitorar.
     """
-    try:
-        # 1. ONU selecionada (right-click)
-        if not click_image("onu_selected.png", button="right", timeout=8):
-            log("Abortando item atual: não conseguiu encontrar 'onu_selected.png'.")
-            return
-
-        # 2. Configurar ONU
-        if not click_image("configure_onu_menu.png", button="left", timeout=8):
-            log("Abortando item atual: 'configure_onu_menu.png' não apareceu.")
-            return
-
-        # 3. Menu Access Control
-        if not click_image("access_control_menu.png", button="left", timeout=8):
-            log("Abortando item atual: 'access_control_menu.png' não apareceu.")
-            return
-
-        # 4. Habilitar rádio/input
-        if not click_image("enable_radio_input.png", button="left", timeout=8):
-            log("Abortando item atual: 'enable_radio_input.png' não apareceu.")
-            return
-
-        # 5. OK
-        if not click_image("ok_button.png", button="left", timeout=8):
-            log("Abortando item atual: 'ok_button.png' não apareceu.")
-            return
-
-        # 6. Final OK
-        if not click_image("final_ok_button.png", button="left", timeout=8):
-            log("Abortando item atual: 'final_ok_button.png' não apareceu.")
-            return
-
-        # 7. Security OK
-        if not click_image("security_ok_button.png", button="left", timeout=8):
-            log("Abortando item atual: 'security_ok_button.png' não apareceu.")
-            return
-
-        # 8. Verifica se apareceu modal de erro
-        err_box = wait_for_optional_image("err_modal.png", timeout=3.0, confidence=0.9)
-
-        if err_box is not None:
-            log("Fluxo de ERRO: modal de erro detectado.")
-
-            if not click_image("close.png", button="left", timeout=5):
-                log("[WARN] 'close.png' não encontrado após err_modal. Tentando seguir mesmo assim.")
-
-            if not click_image("cancel_button.png", button="left", timeout=5):
-                log("[WARN] 'cancel_button.png' não encontrado após err_modal.")
-        else:
-            log("Fluxo de SUCESSO: nenhum modal de erro detectado após 'security_ok_button'.")
-    finally:
-        # 9. Sempre tenta avançar para o próximo item, independente de sucesso/erro
-        log("Esperando 1.5s antes de tentar avançar para o próximo item...")
-        time.sleep(1.5)
-
-        # Garante foco na lista: tenta clicar novamente no item selecionado
-        try:
-            box = wait_for_optional_image("onu_selected.png", timeout=1.0, confidence=0.7)
-            if box is not None:
-                center = pyautogui.center(box)
-                log("Reforçando foco na lista clicando no item selecionado antes da seta para baixo.")
-                pyautogui.click(center.x, center.y, button="left")
-                time.sleep(0.1)
-        except Exception as e:
-            log(f"[WARN] Erro ao tentar reforçar foco na lista: {e}")
-
-        log("Pressionando seta para baixo para ir ao próximo item da lista.")
-        pyautogui.press("down")
-
-
-def main_loop() -> None:
-    """
-    Loop principal: processa itens indefinidamente até Ctrl+C.
-    """
-    log("Iniciando loop principal de processamento de ONUs.")
+    log("Iniciando monitor de modal de erro.")
     log("Use Ctrl+C ou mova o mouse rapidamente para o canto superior esquerdo para interromper (FAILSAFE).")
 
-    item_index = 1
     try:
         while True:
-            log(f"========== Processando item #{item_index} ==========")
-            process_single_item()
-            item_index += 1
+            # Checa rapidamente se o modal de erro apareceu
+            box = wait_for_optional_image("err_modal.png", timeout=0.5, confidence=0.7)
+            if box is None:
+                # Nada na tela, volta a checar
+                continue
+
+            log("Modal de erro detectado ('err_modal.png'). Iniciando sequência de fechamento.")
+
+            # Tenta clicar no botão de fechar
+            if not click_image("close.png", button="left", timeout=3, confidence=0.7):
+                log("[WARN] Não foi possível clicar em 'close.png'. Tentando seguir assim mesmo.")
+
+            time.sleep(0.3)
+
+            # Tenta clicar no botão de cancelamento
+            if not click_image("cancel_button.png", button="left", timeout=3, confidence=0.7):
+                log("[WARN] Não foi possível clicar em 'cancel_button.png'.")
+
+            # Aguarda o modal sumir para evitar tratar o mesmo erro várias vezes
+            log("Aguardando o desaparecimento do modal de erro...")
+            wait_start = time.time()
+            while time.time() - wait_start < 5.0:
+                still_there = wait_for_optional_image("err_modal.png", timeout=0.5, confidence=0.7)
+                if still_there is None:
+                    log("Modal de erro desapareceu. Voltando a monitorar.")
+                    break
+            else:
+                log("[WARN] Modal de erro ainda parece presente após timeout; continuando monitoramento.")
+
     except KeyboardInterrupt:
         log("Execução interrompida pelo usuário (Ctrl+C).")
 
 
 if __name__ == "__main__":
-    main_loop()
+    handle_error_modal()
 
 
 
