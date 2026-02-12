@@ -124,62 +124,75 @@ def process_single_item() -> None:
            - Left-click em 'cancel_button.png'
        Se NÃO aparecer:
            - Considera sucesso.
-    9. Espera 1.5s e tecla "down" para ir ao próximo item.
+    9. Independente de sucesso/erro acima, espera 1.5s e tecla "down" para ir ao próximo item.
     """
-    # 1. ONU selecionada (right-click)
-    if not click_image("onu_selected.png", button="right", timeout=8):
-        log("Abortando item atual: não conseguiu encontrar 'onu_selected.png'.")
-        return
+    try:
+        # 1. ONU selecionada (right-click)
+        if not click_image("onu_selected.png", button="right", timeout=8):
+            log("Abortando item atual: não conseguiu encontrar 'onu_selected.png'.")
+            return
 
-    # 2. Configurar ONU
-    if not click_image("configure_onu_menu.png", button="left", timeout=8):
-        log("Abortando item atual: 'configure_onu_menu.png' não apareceu.")
-        return
+        # 2. Configurar ONU
+        if not click_image("configure_onu_menu.png", button="left", timeout=8):
+            log("Abortando item atual: 'configure_onu_menu.png' não apareceu.")
+            return
 
-    # 3. Menu Access Control
-    if not click_image("access_control_menu.png", button="left", timeout=8):
-        log("Abortando item atual: 'access_control_menu.png' não apareceu.")
-        return
+        # 3. Menu Access Control
+        if not click_image("access_control_menu.png", button="left", timeout=8):
+            log("Abortando item atual: 'access_control_menu.png' não apareceu.")
+            return
 
-    # 4. Habilitar rádio/input
-    if not click_image("enable_radio_input.png", button="left", timeout=8):
-        log("Abortando item atual: 'enable_radio_input.png' não apareceu.")
-        return
+        # 4. Habilitar rádio/input
+        if not click_image("enable_radio_input.png", button="left", timeout=8):
+            log("Abortando item atual: 'enable_radio_input.png' não apareceu.")
+            return
 
-    # 5. OK
-    if not click_image("ok_button.png", button="left", timeout=8):
-        log("Abortando item atual: 'ok_button.png' não apareceu.")
-        return
+        # 5. OK
+        if not click_image("ok_button.png", button="left", timeout=8):
+            log("Abortando item atual: 'ok_button.png' não apareceu.")
+            return
 
-    # 6. Final OK
-    if not click_image("final_ok_button.png", button="left", timeout=8):
-        log("Abortando item atual: 'final_ok_button.png' não apareceu.")
-        return
+        # 6. Final OK
+        if not click_image("final_ok_button.png", button="left", timeout=8):
+            log("Abortando item atual: 'final_ok_button.png' não apareceu.")
+            return
 
-    # 7. Security OK
-    if not click_image("security_ok_button.png", button="left", timeout=8):
-        log("Abortando item atual: 'security_ok_button.png' não apareceu.")
-        return
+        # 7. Security OK
+        if not click_image("security_ok_button.png", button="left", timeout=8):
+            log("Abortando item atual: 'security_ok_button.png' não apareceu.")
+            return
 
-    # 8. Verifica se apareceu modal de erro
-    err_box = wait_for_optional_image("err_modal.png", timeout=3.0, confidence=0.9)
+        # 8. Verifica se apareceu modal de erro
+        err_box = wait_for_optional_image("err_modal.png", timeout=3.0, confidence=0.9)
 
-    if err_box is not None:
-        log("Fluxo de ERRO: modal de erro detectado.")
+        if err_box is not None:
+            log("Fluxo de ERRO: modal de erro detectado.")
 
-        if not click_image("close.png", button="left", timeout=5):
-            log("[WARN] 'close.png' não encontrado após err_modal. Tentando seguir mesmo assim.")
+            if not click_image("close.png", button="left", timeout=5):
+                log("[WARN] 'close.png' não encontrado após err_modal. Tentando seguir mesmo assim.")
 
-        if not click_image("cancel_button.png", button="left", timeout=5):
-            log("[WARN] 'cancel_button.png' não encontrado após err_modal.")
-    else:
-        log("Fluxo de SUCESSO: nenhum modal de erro detectado após 'security_ok_button'.")
+            if not click_image("cancel_button.png", button="left", timeout=5):
+                log("[WARN] 'cancel_button.png' não encontrado após err_modal.")
+        else:
+            log("Fluxo de SUCESSO: nenhum modal de erro detectado após 'security_ok_button'.")
+    finally:
+        # 9. Sempre tenta avançar para o próximo item, independente de sucesso/erro
+        log("Esperando 1.5s antes de tentar avançar para o próximo item...")
+        time.sleep(1.5)
 
-    # 9. Avança para próximo item
-    log("Esperando 1.5s antes de avançar para o próximo item...")
-    time.sleep(1.5)
-    log("Pressionando seta para baixo para ir ao próximo item da lista.")
-    pyautogui.press("down")
+        # Garante foco na lista: tenta clicar novamente no item selecionado
+        try:
+            box = wait_for_optional_image("onu_selected.png", timeout=1.0, confidence=0.7)
+            if box is not None:
+                center = pyautogui.center(box)
+                log("Reforçando foco na lista clicando no item selecionado antes da seta para baixo.")
+                pyautogui.click(center.x, center.y, button="left")
+                time.sleep(0.1)
+        except Exception as e:
+            log(f"[WARN] Erro ao tentar reforçar foco na lista: {e}")
+
+        log("Pressionando seta para baixo para ir ao próximo item da lista.")
+        pyautogui.press("down")
 
 
 def main_loop() -> None:
